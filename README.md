@@ -17,19 +17,25 @@ The server extracts `pageId=327681` and traverses child pages recursively.
 
 ### System Architecture
 ```mermaid
-graph TB
-    UI[HTML UI<br/>Client Interface] --> Server[McpHttpServer<br/>HTTP API]
-    Server --> Orchestrator[QueryOrchestrator<br/>Business Logic]
-    Orchestrator --> Extractor[ConfluenceExtractorService<br/>Page Extraction]
-    Extractor --> Client[ConfluenceClient<br/>API Client]
-    Client --> Confluence[Confluence REST API<br/>External Service]
-    Orchestrator --> Provider[LlmProvider Interface<br/>LLM Abstraction]
-    Provider --> Bedrock[BedrockProvider<br/>AWS Bedrock]
-    Provider --> Gemini[GeminiProvider<br/>Google Gemini]
-    Provider --> GitLab[GitLabDuoProvider<br/>GitLab Duo]
-    Bedrock --> AWS[AWS Bedrock API]
-    Gemini --> Google[Google Gemini API]
-    GitLab --> GL[GitLab Duo API]
+graph LR
+    UI[HTML UI<br/>Client Interface] -->|Query Request| Server[McpHttpServer<br/>HTTP API]
+    Server -->|Process Query| Orchestrator[QueryOrchestrator<br/>Business Logic]
+    Orchestrator -->|Extract Pages| Extractor[ConfluenceExtractorService<br/>Page Extraction]
+    Extractor -->|Fetch Page| Client[ConfluenceClient<br/>API Client]
+    Client -->|API Call| Confluence[Confluence REST API<br/>External Service]
+    Confluence -->|Page Data| Client
+    Client -->|ConfluencePage| Extractor
+    Extractor -->|List&lt;ConfluencePage&gt;| Orchestrator
+    Orchestrator -->|Generate Response| Provider[LlmProvider Interface<br/>LLM Abstraction]
+    Provider -->|API Call| Bedrock[BedrockProvider<br/>AWS Bedrock]
+    Provider -->|API Call| Gemini[GeminiProvider<br/>Google Gemini]
+    Provider -->|API Call| GitLab[GitLabDuoProvider<br/>GitLab Duo]
+    Bedrock -->|Response| Provider
+    Gemini -->|Response| Provider
+    GitLab -->|Response| Provider
+    Provider -->|String Response| Orchestrator
+    Orchestrator -->|JSON Response| Server
+    Server -->|HTTP Response| UI
     
     style UI fill:#e1f5fe
     style Server fill:#f3e5f5
