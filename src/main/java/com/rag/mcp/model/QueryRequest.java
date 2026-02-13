@@ -1,9 +1,12 @@
 package com.rag.mcp.model;
 
+import java.util.List;
+
 public class QueryRequest {
     private String query;
     private String provider;
-    private String rootPageUrl;
+    private String rootPageUrl; // Keep for backward compatibility
+    private List<String> rootPageUrls; // New field for multiple URLs
     private Integer maxDepth;
     private Integer maxPages;
 
@@ -29,6 +32,14 @@ public class QueryRequest {
 
     public void setRootPageUrl(String rootPageUrl) {
         this.rootPageUrl = rootPageUrl;
+    }
+
+    public List<String> getRootPageUrls() {
+        return rootPageUrls;
+    }
+
+    public void setRootPageUrls(List<String> rootPageUrls) {
+        this.rootPageUrls = rootPageUrls;
     }
 
     public Integer getMaxDepth() {

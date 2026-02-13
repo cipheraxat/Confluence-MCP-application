@@ -22,8 +22,12 @@ graph LR
     Server -->|Process Query| Orchestrator[QueryOrchestrator<br/>Business Logic]
     Orchestrator -->|Extract Pages| Extractor[ConfluenceExtractorService<br/>Page Extraction]
     Extractor -->|Fetch Page| Client[ConfluenceClient<br/>API Client]
-    Client -->|API Call| Confluence[Confluence REST API<br/>External Service]
-    Confluence -->|Page Data| Client
+    Client -->|API Call| Confluence1[Confluence Source 1<br/>External Service]
+    Client -->|API Call| Confluence2[Confluence Source 2<br/>External Service]
+    Client -->|API Call| ConfluenceN[Confluence Source N<br/>External Service]
+    Confluence1 -->|Page Data| Client
+    Confluence2 -->|Page Data| Client
+    ConfluenceN -->|Page Data| Client
     Client -->|ConfluencePage| Extractor
     Extractor -->|List&lt;ConfluencePage&gt;| Orchestrator
     Orchestrator -->|Generate Response| Provider[LlmProvider Interface<br/>LLM Abstraction]
@@ -58,23 +62,25 @@ sequenceDiagram
     participant Extractor
     participant Client
     participant Confluence
-    participant Provider
-    participant LLM
 
     User->>UI: Submit query with parameters
-    UI->>Server: POST /api/query
+    UI->>Server: POST /api/query with rootPageUrls[]
     Server->>Orchestrator: processQuery(request)
-    Orchestrator->>Extractor: extractPages(rootUrl, maxDepth, maxPages)
-    Extractor->>Client: fetchPage(pageId)
-    Client->>Confluence: GET /rest/api/content/{pageId}
-    Confluence-->>Client: Page JSON
-    Client-->>Extractor: ConfluencePage object
-    Extractor->>Client: fetchChildren(pageId)
-    loop For each child page
-        Client->>Confluence: GET /rest/api/content/{childId}
-        Confluence-->>Client: Child page JSON
+    Orchestrator->>Extractor: extractPages(rootUrls[], maxDepth, maxPages)
+    
+    loop For each root URL
+        Extractor->>Client: fetchTree(rootPageId, maxDepth, maxPages)
+        Client->>Confluence: GET /rest/api/content/{rootPageId}
+        Confluence-->>Client: Root page JSON
+        Client-->>Extractor: ConfluencePage object
+        
+        loop For each child page
+            Client->>Confluence: GET /rest/api/content/{childId}
+            Confluence-->>Client: Child page JSON
+        end
     end
-    Extractor-->>Orchestrator: List<ConfluencePage>
+    
+    Extractor-->>Orchestrator: List<ConfluencePage> from all sources
     Orchestrator->>Provider: generate(prompt, providerType)
     Provider->>LLM: API call (Bedrock/Gemini/GitLab)
     LLM-->>Provider: Generated response
@@ -155,6 +161,7 @@ If you want, I can run the exact kill + restart commands for you now.
 UI actions:
 - `Run Query`: usual process (Confluence extraction + LLM via `bedrock` or `gemini`)
 - `Extract Only`: Confluence extraction only (no LLM call)
+- `+ Add Another URL`: Add multiple Confluence source URLs to query from
 
 ## Quick troubleshooting
 - If startup fails with missing env vars, re-run step 2 (`source .env.example`) in the same terminal.
@@ -170,18 +177,25 @@ Example body:
 {
   "query": "Summarize the architecture risks",
   "provider": "bedrock",
-  "rootPageUrl": "https://akshatanand.atlassian.net/wiki/spaces/~5e80e683cb85aa0c1448bd0f/pages/327681/Software+architecture+review",
+  "rootPageUrls": [
+    "https://akshatanand.atlassian.net/wiki/spaces/~5e80e683cb85aa0c1448bd0f/pages/327681/Software+architecture+review",
+    "https://akshatanand.atlassian.net/wiki/spaces/~5e80e683cb85aa0c1448bd0f/pages/123456/Another+page"
+  ],
   "maxDepth": 5,
   "maxPages": 200
 }
 ```
+
+For backward compatibility, you can also use `rootPageUrl` (singular) with a single URL string.
 
 `POST /api/extract` (no LLM call, raw Confluence extraction)
 
 Example body:
 ```json
 {
-  "rootPageUrl": "https://akshatanand.atlassian.net/wiki/spaces/~5e80e683cb85aa0c1448bd0f/pages/327681/Software+architecture+review",
+  "rootPageUrls": [
+    "https://akshatanand.atlassian.net/wiki/spaces/~5e80e683cb85aa0c1448bd0f/pages/327681/Software+architecture+review"
+  ],
   "maxDepth": 5,
   "maxPages": 200
 }

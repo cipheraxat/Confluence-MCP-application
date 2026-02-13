@@ -1,8 +1,46 @@
 const submitBtn = document.getElementById('submitBtn');
 const extractBtn = document.getElementById('extractBtn');
+const addUrlBtn = document.getElementById('addUrlBtn');
+const urlContainer = document.getElementById('urlContainer');
 const loadingArea = document.getElementById('loading-area');
 const responseArea = document.getElementById('response-area');
 const responseContent = document.getElementById('response-content');
+
+// URL management
+addUrlBtn.addEventListener('click', addUrlInput);
+urlContainer.addEventListener('click', handleUrlRemove);
+
+function addUrlInput() {
+  const urlGroups = urlContainer.querySelectorAll('.url-input-group');
+  if (urlGroups.length >= 5) return; // Limit to 5 URLs
+  
+  const newGroup = document.createElement('div');
+  newGroup.className = 'url-input-group';
+  newGroup.innerHTML = `
+    <input type="text" class="url-input" placeholder="https://your-confluence-url.com/pages/12345/Page+Title" />
+    <button type="button" class="remove-url-btn">&times;</button>
+  `;
+  urlContainer.appendChild(newGroup);
+  updateRemoveButtons();
+}
+
+function handleUrlRemove(e) {
+  if (e.target.classList.contains('remove-url-btn')) {
+    e.target.closest('.url-input-group').remove();
+    updateRemoveButtons();
+  }
+}
+
+function updateRemoveButtons() {
+  const urlGroups = urlContainer.querySelectorAll('.url-input-group');
+  urlGroups.forEach((group, index) => {
+    const removeBtn = group.querySelector('.remove-url-btn');
+    removeBtn.style.display = urlGroups.length > 1 ? 'flex' : 'none';
+  });
+}
+
+// Initialize remove buttons
+updateRemoveButtons();
 
 submitBtn.addEventListener('click', () => executeRequest('/api/query', true));
 extractBtn.addEventListener('click', () => executeRequest('/api/extract', false));
@@ -10,7 +48,13 @@ extractBtn.addEventListener('click', () => executeRequest('/api/extract', false)
 async function executeRequest(endpoint, requireQuery) {
   const query = document.getElementById('query').value.trim();
   const provider = document.getElementById('provider').value;
-  const rootPageUrl = document.getElementById('rootPageUrl').value.trim();
+  
+  // Collect all URLs
+  const urlInputs = urlContainer.querySelectorAll('.url-input');
+  const rootPageUrls = Array.from(urlInputs)
+    .map(input => input.value.trim())
+    .filter(url => url.length > 0);
+  
   const maxDepth = Number(document.getElementById('maxDepth').value || 5);
   const maxPages = Number(document.getElementById('maxPages').value || 200);
 
@@ -18,11 +62,20 @@ async function executeRequest(endpoint, requireQuery) {
     showError('Please enter a query.');
     return;
   }
+  
+  if (rootPageUrls.length === 0) {
+    showError('Please enter at least one Confluence URL.');
+    return;
+  }
 
   setLoading(true);
 
   try {
-    const payload = { rootPageUrl, maxDepth, maxPages };
+    const payload = { 
+      rootPageUrls, 
+      maxDepth, 
+      maxPages 
+    };
     if (requireQuery) {
       payload.query = query;
       payload.provider = provider;
@@ -66,19 +119,21 @@ function showError(msg) {
 
 function renderQueryResponse(data) {
   responseArea.style.display = 'block';
+  const rootUrls = data.rootPageUrls || (data.rootPageUrl ? [data.rootPageUrl] : []);
   const sources = data.sources || [];
 
   let html = `
     <div class="status-bar success"><span class="dot"></span> Success</div>
-    <div class="answer-box">${renderMarkdown(data.answer || '')}</div>
+    <div class="answer-box">${renderMarkdown(data.answer || '', sources)}</div>
     <div class="meta">
       <span><strong>Provider:</strong>&nbsp;${esc(data.provider)}</span>
       <span><strong>Pages retrieved:</strong>&nbsp;${data.retrievedPageCount}</span>
+      <span><strong>Sources:</strong>&nbsp;${rootUrls.length} URL${rootUrls.length !== 1 ? 's' : ''}</span>
     </div>`;
 
-  if (sources.length) {
-    html += `<div class="sources-header" style="margin-top:20px">Referenced Sources (${sources.length})</div>
-      <ul class="source-list">${sources.map(s => sourceItem(s, false)).join('')}</ul>`;
+  if (rootUrls.length) {
+    html += `<div class="sources-header" style="margin-top:20px">Sources</div>
+      <div class="source-links">${rootUrls.map(url => `<a href="${esc(url)}" target="_blank" class="source-link">${esc(url)}</a>`).join('')}</div>`;
   }
 
   responseContent.innerHTML = html;
@@ -86,35 +141,27 @@ function renderQueryResponse(data) {
 
 function renderExtraction(data) {
   responseArea.style.display = 'block';
-  const pages = data.pages || [];
+  const rootUrls = data.rootPageUrls || (data.rootPageUrl ? [data.rootPageUrl] : []);
 
   let html = `
     <div class="status-bar success"><span class="dot"></span> Extraction complete</div>
     <div class="meta" style="margin-bottom:16px">
       <span><strong>Mode:</strong>&nbsp;Extract Only</span>
       <span><strong>Pages retrieved:</strong>&nbsp;${data.retrievedPageCount}</span>
+      <span><strong>Sources:</strong>&nbsp;${rootUrls.length} URL${rootUrls.length !== 1 ? 's' : ''}</span>
     </div>`;
 
-  if (pages.length) {
-    html += `<div class="sources-header">Extracted Pages (${pages.length})</div>
-      <ul class="source-list">${pages.map(p => sourceItem(p, true)).join('')}</ul>`;
+  if (rootUrls.length) {
+    html += `<div class="sources-header">Sources</div>
+      <div class="source-links">${rootUrls.map(url => `<a href="${esc(url)}" target="_blank" class="source-link">${esc(url)}</a>`).join('')}</div>`;
   }
 
   responseContent.innerHTML = html;
 }
 
-function sourceItem(s, showContent) {
-  const depthLabel = s.depth != null ? `D${s.depth}` : '';
-  let inner = `
-    <span class="badge">${esc(depthLabel)}</span>
-    <div class="source-info">
-      <div class="source-title">${esc(s.title || 'Untitled')}</div>
-      ${s.sourceUrl ? `<a href="${esc(s.sourceUrl)}" target="_blank">${esc(s.sourceUrl)}</a>` : ''}`;
-  if (showContent && s.content) {
-    inner += `<div class="extract-content">${esc(s.content)}</div>`;
-  }
-  inner += '</div>';
-  return `<li class="source-item">${inner}</li>`;
+function sourceLink(s) {
+  if (!s.sourceUrl) return '';
+  return `<a href="${esc(s.sourceUrl)}" target="_blank" class="source-link">${esc(s.title || 'Untitled')}</a>`;
 }
 
 function esc(str) {
@@ -124,9 +171,9 @@ function esc(str) {
   return d.innerHTML;
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, sources) {
   if (!text) return '';
-  return esc(text)
+  let rendered = esc(text)
     // ## Headings → styled h3
     .replace(/^## (.+)$/gm, '<h3 class="md-h2">$1</h3>')
     // ### Sub-headings → styled h4
@@ -147,4 +194,18 @@ function renderMarkdown(text) {
     .replace(/\n\n/g, '</p><p class="md-p">')
     // Single newlines inside paragraphs
     .replace(/\n/g, '<br>');
+
+  // Inject links into Sources Referenced section
+  if (sources && sources.length) {
+    for (const s of sources) {
+      if (s.title && s.sourceUrl) {
+        const escapedTitle = esc(s.title);
+        const link = `<a href="${esc(s.sourceUrl)}" target="_blank" class="source-link" style="display:inline;padding:2px 6px;font-size:inherit;">${escapedTitle}</a>`;
+        // Replace occurrences of the title text within list items (Sources Referenced section)
+        rendered = rendered.split(escapedTitle).join(link);
+      }
+    }
+  }
+
+  return rendered;
 }

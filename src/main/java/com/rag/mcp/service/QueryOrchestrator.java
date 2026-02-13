@@ -30,28 +30,35 @@ public class QueryOrchestrator {
         validate(request);
 
         ProviderType providerType = ProviderType.from(request.getProvider());
-        String rootUrl = request.getRootPageUrl() == null || request.getRootPageUrl().isBlank()
-                ? DEFAULT_ROOT_URL
-                : request.getRootPageUrl().trim();
+        List<String> rootUrls = getRootUrls(request);
 
         int maxDepth = request.getMaxDepth() == null ? 5 : Math.max(0, request.getMaxDepth());
         int maxPages = request.getMaxPages() == null ? 200 : Math.max(1, request.getMaxPages());
 
-        String rootPageId = extractPageId(rootUrl);
-        List<ConfluencePage> pages = extractorService.fetchTree(rootPageId, maxDepth, maxPages);
+        List<ConfluencePage> allPages = new java.util.ArrayList<>();
+        for (String rootUrl : rootUrls) {
+            String rootPageId = extractPageId(rootUrl);
+            List<ConfluencePage> pages = extractorService.fetchTree(rootPageId, maxDepth, maxPages / rootUrls.size());
+            allPages.addAll(pages);
+            if (allPages.size() >= maxPages) break;
+        }
+        // Trim to maxPages if exceeded
+        if (allPages.size() > maxPages) {
+            allPages = allPages.subList(0, maxPages);
+        }
 
-        String prompt = buildPrompt(request.getQuery(), rootUrl, pages);
+        String prompt = buildPrompt(request.getQuery(), rootUrls, allPages);
         LlmProvider provider = llmProviderFactory.getProvider(providerType);
         String answer = provider.generate(prompt);
 
         // Parse referenced sources from the answer
-        List<Map<String, Object>> referencedSources = extractReferencedSources(answer, pages);
+        List<Map<String, Object>> referencedSources = extractReferencedSources(answer, allPages);
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
         response.put("provider", provider.name());
-        response.put("rootPageUrl", rootUrl);
-        response.put("retrievedPageCount", pages.size());
+        response.put("rootPageUrls", rootUrls);
+        response.put("retrievedPageCount", allPages.size());
         response.put("sources", referencedSources);
         response.put("answer", answer);
         return response;
@@ -60,22 +67,29 @@ public class QueryOrchestrator {
     public Map<String, Object> extractOnly(QueryRequest request) throws Exception {
         validateExtractionRequest(request);
 
-        String rootUrl = request.getRootPageUrl() == null || request.getRootPageUrl().isBlank()
-                ? DEFAULT_ROOT_URL
-                : request.getRootPageUrl().trim();
+        List<String> rootUrls = getRootUrls(request);
 
         int maxDepth = request.getMaxDepth() == null ? 5 : Math.max(0, request.getMaxDepth());
         int maxPages = request.getMaxPages() == null ? 200 : Math.max(1, request.getMaxPages());
 
-        String rootPageId = extractPageId(rootUrl);
-        List<ConfluencePage> pages = extractorService.fetchTree(rootPageId, maxDepth, maxPages);
+        List<ConfluencePage> allPages = new java.util.ArrayList<>();
+        for (String rootUrl : rootUrls) {
+            String rootPageId = extractPageId(rootUrl);
+            List<ConfluencePage> pages = extractorService.fetchTree(rootPageId, maxDepth, maxPages / rootUrls.size());
+            allPages.addAll(pages);
+            if (allPages.size() >= maxPages) break;
+        }
+        // Trim to maxPages if exceeded
+        if (allPages.size() > maxPages) {
+            allPages = allPages.subList(0, maxPages);
+        }
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
         response.put("mode", "extract-only");
-        response.put("rootPageUrl", rootUrl);
-        response.put("retrievedPageCount", pages.size());
-        response.put("pages", pages.stream().map(page -> {
+        response.put("rootPageUrls", rootUrls);
+        response.put("retrievedPageCount", allPages.size());
+        response.put("pages", allPages.stream().map(page -> {
             Map<String, Object> pageData = new LinkedHashMap<>();
             pageData.put("pageId", page.getPageId());
             pageData.put("title", page.getTitle());
@@ -103,6 +117,33 @@ public class QueryOrchestrator {
         }
     }
 
+    private List<String> getRootUrls(QueryRequest request) {
+        List<String> rootUrls = new java.util.ArrayList<>();
+        
+        // Check if multiple URLs are provided
+        if (request.getRootPageUrls() != null && !request.getRootPageUrls().isEmpty()) {
+            for (String url : request.getRootPageUrls()) {
+                if (url != null && !url.trim().isEmpty()) {
+                    rootUrls.add(url.trim());
+                }
+            }
+        }
+        
+        // Fallback to single URL for backward compatibility
+        if (rootUrls.isEmpty()) {
+            String rootUrl = request.getRootPageUrl() == null || request.getRootPageUrl().isBlank()
+                    ? DEFAULT_ROOT_URL
+                    : request.getRootPageUrl().trim();
+            rootUrls.add(rootUrl);
+        }
+        
+        if (rootUrls.isEmpty()) {
+            throw new IllegalArgumentException("At least one root page URL is required");
+        }
+        
+        return rootUrls;
+    }
+
     private String extractPageId(String pageUrl) {
         URI uri = URI.create(pageUrl);
         Matcher matcher = PAGE_ID_PATTERN.matcher(uri.getPath());
@@ -112,7 +153,7 @@ public class QueryOrchestrator {
         return matcher.group(1);
     }
 
-    private String buildPrompt(String userQuestion, String rootUrl, List<ConfluencePage> pages) {
+    private String buildPrompt(String userQuestion, List<String> rootUrls, List<ConfluencePage> pages) {
         StringBuilder context = new StringBuilder();
         for (int i = 0; i < pages.size(); i++) {
             ConfluencePage page = pages.get(i);
@@ -123,6 +164,8 @@ public class QueryOrchestrator {
                     .append("URL      : ").append(page.getSourceUrl()).append("\n")
                     .append("Content  :\n").append(trim(page.getContent(), 4000)).append("\n");
         }
+
+        String rootUrlsStr = String.join(", ", rootUrls);
 
         return """
                 You are an expert technical analyst specializing in Confluence knowledge base analysis.
@@ -154,7 +197,7 @@ public class QueryOrchestrator {
                 If no gaps exist, write "None identified."
 
                 ---
-                Root URL: """ + rootUrl + "\n" +
+                Root URLs: """ + rootUrlsStr + "\n" +
                 "Total pages retrieved: " + pages.size() + "\n" +
                 "User question: " + userQuestion + "\n" +
                 "\nConfluence context:" + context;
