@@ -44,20 +44,15 @@ public class QueryOrchestrator {
         LlmProvider provider = llmProviderFactory.getProvider(providerType);
         String answer = provider.generate(prompt);
 
+        // Parse referenced sources from the answer
+        List<Map<String, Object>> referencedSources = extractReferencedSources(answer, pages);
+
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "ok");
         response.put("provider", provider.name());
         response.put("rootPageUrl", rootUrl);
         response.put("retrievedPageCount", pages.size());
-        response.put("sources", pages.stream().map(page -> {
-            Map<String, Object> source = new LinkedHashMap<>();
-            source.put("pageId", page.getPageId());
-            source.put("title", page.getTitle());
-            source.put("parentId", page.getParentId());
-            source.put("depth", page.getDepth());
-            source.put("sourceUrl", page.getSourceUrl());
-            return source;
-        }).toList());
+        response.put("sources", referencedSources);
         response.put("answer", answer);
         return response;
     }
@@ -173,5 +168,54 @@ public class QueryOrchestrator {
             return text;
         }
         return text.substring(0, maxChars) + "...";
+    }
+
+    private List<Map<String, Object>> extractReferencedSources(String answer, List<ConfluencePage> allPages) {
+        List<Map<String, Object>> referencedSources = new java.util.ArrayList<>();
+
+        // Find the "Sources Referenced" section in the answer
+        Pattern sourcesPattern = Pattern.compile("## Sources Referenced\\s*(.*?)(?=\\n##|\\n---|\\n*$)", Pattern.DOTALL);
+        Matcher sourcesMatcher = sourcesPattern.matcher(answer);
+
+        if (sourcesMatcher.find()) {
+            String sourcesSection = sourcesMatcher.group(1);
+            // Extract page titles from the sources section
+            Pattern titlePattern = Pattern.compile("(.+?)(?=\\n|$)");
+            Matcher titleMatcher = titlePattern.matcher(sourcesSection);
+
+            while (titleMatcher.find()) {
+                String title = titleMatcher.group(1).trim();
+                if (!title.isEmpty() && !title.equals("## Sources Referenced")) {
+                    // Find the matching page by title
+                    for (ConfluencePage page : allPages) {
+                        if (page.getTitle() != null && page.getTitle().trim().equalsIgnoreCase(title)) {
+                            Map<String, Object> source = new LinkedHashMap<>();
+                            source.put("pageId", page.getPageId());
+                            source.put("title", page.getTitle());
+                            source.put("parentId", page.getParentId());
+                            source.put("depth", page.getDepth());
+                            source.put("sourceUrl", page.getSourceUrl());
+                            referencedSources.add(source);
+                            break; // Found the matching page, no need to continue searching
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no sources were referenced or parsing failed, return all sources as fallback
+        if (referencedSources.isEmpty()) {
+            for (ConfluencePage page : allPages) {
+                Map<String, Object> source = new LinkedHashMap<>();
+                source.put("pageId", page.getPageId());
+                source.put("title", page.getTitle());
+                source.put("parentId", page.getParentId());
+                source.put("depth", page.getDepth());
+                source.put("sourceUrl", page.getSourceUrl());
+                referencedSources.add(source);
+            }
+        }
+
+        return referencedSources;
     }
 }

@@ -77,7 +77,7 @@ function renderQueryResponse(data) {
     </div>`;
 
   if (sources.length) {
-    html += `<div class="sources-header" style="margin-top:20px">Sources (${sources.length})</div>
+    html += `<div class="sources-header" style="margin-top:20px">Referenced Sources (${sources.length})</div>
       <ul class="source-list">${sources.map(s => sourceItem(s, false)).join('')}</ul>`;
   }
 
