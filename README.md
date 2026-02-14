@@ -200,6 +200,22 @@ Example body:
   "maxPages": 200
 }
 ```
+UI 
+
+Landing page
+<img width="1107" height="664" alt="image" src="https://github.com/user-attachments/assets/c050db8f-49db-4fe9-b965-e57377922664" />
+
+Inputs
+<img width="1094" height="697" alt="image" src="https://github.com/user-attachments/assets/26ead16c-a60f-4d6b-a4ac-5341ccf4ec3f" />
+
+
+Output
+<img width="1061" height="886" alt="image" src="https://github.com/user-attachments/assets/ee98f375-2655-43fc-a3bb-6444b10936e5" />
+
+
+Sources
+<img width="1075" height="771" alt="image" src="https://github.com/user-attachments/assets/3c2e9d78-16c6-40bd-95de-63f6273305ca" />
+
 
 ## Notes
 - Provider options are exactly `bedrock` or `gemini`.
